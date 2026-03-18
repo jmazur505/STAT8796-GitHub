@@ -1,0 +1,165 @@
+---
+title: "Homework 7"
+author: "Josh Mazurkiewicz"
+date: March 10, 2026
+date-format: long
+editor: source
+format:
+  html:
+    embed-resources: true
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+
+```{r setup}
+library(tidyverse)
+library(tidytext)
+library(schrute)
+library(babynames)
+library(english)
+library(kableExtra)
+library(topicmodels)
+options(scipen = 999)
+```
+
+# The Office
+
+Let's continue to work with *The Office* text from the [schrute](https://cran.r-project.org/web/packages/schrute/index.html) package.
+
+# Primary Topics
+
+For each season (not each episode anymore), determine the primary topics for the show using 1) a TF-IDF approach and 2) an LDA approach. You should do at least some cleaning of the data to exclude words that don't make sense.
+
+
+
+```{r}
+office_data <- theoffice %>% 
+    select(season, text) %>%
+    group_by(season) %>% 
+    unnest_tokens(word, text) %>% 
+    ungroup() %>% 
+    anti_join(babynames %>% select(name) %>% mutate(word = str_to_lower(name))) %>%
+    mutate(word = str_replace_all(word, "\\d+", function(x) as.character(english(as.numeric(x))))) 
+```
+
+
+
+
+
+## TF-IDF
+
+```{r}
+office_idf <- office_data %>%
+    distinct(season, word) %>% 
+    count(word) %>%
+    rename(Dt = n) %>% 
+    mutate(DF = Dt / (office_data %>% distinct(season) %>% nrow()), 
+           DF_adj = Dt / (1 + office_data %>% distinct(season) %>% nrow()), 
+           IDF = log(1 / DF), 
+           IDF_adj = log(1 / DF_adj))
+
+office_tfidf <- office_data %>% 
+    count(season, word) %>% 
+    group_by(season) %>% 
+    mutate(TF = n / sum(n)) %>% 
+    ungroup() %>% 
+    left_join(office_idf) %>%
+    mutate(TFIDF = TF * IDF, 
+           TFIDF_adj = TF * IDF_adj)
+
+
+office_tfidf %>% 
+    arrange(desc(TFIDF)) %>% 
+    head(10)
+```
+
+
+
+
+
+```{r}
+office_tfidf %>% 
+    group_by(season) %>%
+    slice_max(order_by = TFIDF, n = 3) %>%
+    arrange(season, desc(TFIDF)) %>%
+    mutate(rank = row_number(), 
+           topic = paste0(word, " (", round(TFIDF, 4), ")")) %>%
+    ungroup() %>%  
+    select(season, topic, rank) %>%
+    pivot_wider(names_from = rank, values_from = topic, names_prefix = "top_") %>% 
+    mutate(top_4 = ifelse(is.na(top_4), " ", top_4)) %>%
+    rename("top_3 (tied)" = top_4) %>%
+    kable(caption = "Table of Most Prevalent Topics Each Season of The Office") 
+```
+
+
+
+
+
+
+
+
+
+
+## LDA
+
+
+```{r}
+additional_removal <- data.frame(word = c("yeah", "um", "uh", "gonna", "hey", "alright", "woah", "guys", "people", "huh", "wow", "wait", "hmm", "stop", "fine", "mm"))
+
+office_lda <- office_data %>% 
+    count(season, word) %>%
+    anti_join(stop_words) %>%
+    anti_join(additional_removal) %>%
+    cast_dtm(season, word, n) %>%
+    LDA(k = 2, 
+        control = list(seed = 8796)) %>% 
+    tidy(matrix = "beta") %>%
+    mutate(topic = paste0("topic_",topic))
+```
+
+
+
+
+
+```{r}
+office_lda %>% 
+    group_by(topic) %>% 
+    slice_max(beta, n=10) %>%
+    ungroup() %>% 
+    ggplot() + 
+    aes(x = beta, y = term %>% reorder(beta), fill = as.factor(topic)) + 
+    geom_col(show.legend = FALSE) + 
+    facet_wrap(~ topic, scales = "free") + 
+    scale_y_reordered() + 
+    xlab("Beta") + 
+    ylab("Term")
+```
+
+
+
+
+
+
+
+
+```{r}
+office_lda %>% 
+    pivot_wider(names_from = topic, values_from = beta) %>%
+    mutate(log_ratio = log(topic_2 / topic_1),
+           rank_high = min_rank(log_ratio),
+           rank_low = min_rank(-log_ratio)) %>%
+    filter(rank_high <= 10 | rank_low <= 10) %>%
+    ggplot() +
+    aes(x = log_ratio, y = term %>% reorder(log_ratio)) +
+    geom_col(show.legend = FALSE) +
+    geom_hline(yintercept = 10.5, lty = 2) +
+    scale_y_reordered()
+```
+
+
+
+
