@@ -1,0 +1,208 @@
+---
+title: "Homework 5"
+author: "Josh Mazurkiewicz"
+date: February 17, 2026
+date-format: long
+editor: source
+format:
+  html:
+    embed-resources: true
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+```{r setup, echo = FALSE}
+library(tidyverse)
+library(schrute)
+library(tidytext)
+```
+
+
+```{r}
+office_data <- theoffice %>% 
+    mutate(lines = str_to_lower(text)) %>% 
+    select(-director, -episode_name, -writer, -imdb_rating, - total_votes, -air_date)
+```
+
+# 1)
+
+```{r}
+office_data %>%
+    pull(lines) %>%
+    str_count("that's what she said") %>% 
+    sum()
+
+office_data %>%
+    pull(lines) %>%
+    str_detect("that's what she said") %>% 
+    sum()
+```
+"That's what she said" is explicitly said 35 times. However, there are only 33 lines that contain that explicit expression. This is because in line 20370, Pam says the phrase 3 times.
+
+
+
+
+# 2)
+
+```{r}
+office_4gram <- office_data %>% 
+    unnest_tokens(words_4, lines, token = "ngrams", n = 4)
+
+office_4gram %>% 
+    head(10)
+```
+
+
+
+```{r}
+office_4gram %>% 
+    filter(words_4 == "that's what she said") %>% 
+    count()
+```
+
+
+This matches the first part for number of times the phrase itself is said.
+
+
+# 3) 
+
+
+```{r}
+office_4gram %>% 
+    filter(str_detect(words_4, "^that's what she")) %>% 
+    filter(words_4 != "that's what she said")
+```
+
+
+There are three additional phrases that are selected here, but only two that I would include in the context of "That's what she said:" 1902, 18385
+
+
+# 4) 
+
+```{r}
+office_4gram %>%
+    filter(str_detect(words_4, "what she said"), 
+           !str_detect(words_4, "that's what she said")) %>%
+    mutate(before = str_detect(words_4, "that's what she said")) %>%
+    select(-season, -episode, -text_w_direction)
+```
+
+It does not appear, after inspecting the instances, that any additional phrases here should be included in context.
+
+
+
+# 5)
+
+
+```{r}
+office_data %>%
+    filter(
+        str_detect(lines, "that"),
+        str_detect(lines, "what"),
+        str_detect(lines, "she"),
+        str_detect(lines, "said"),
+        !str_detect(lines, "that's what she said")) %>% 
+    pull(lines)
+```
+
+There do not appear to be any other lines that I would consider, given they have "that", "what", "she", and "said" in them.
+
+
+# 6)
+
+```{r}
+that_what_X <- office_4gram %>%
+    filter(str_detect(words_4, "^that's what .* said$")) %>%
+    separate(words_4, into = c("that", "what", "X", "said"), sep = " ") %>% 
+    count(X, sort = TRUE)
+```
+
+
+```{r}
+ggplot(data = that_what_X) + 
+    geom_col(aes(x = reorder(X, -n), y = n, fill = n), show.legend = FALSE) + 
+    theme_minimal() +
+    ggtitle("Distribution of \"that's what X said\"") + 
+    xlab("X") + 
+    ylab("Count")
+```
+
+
+
+
+
+
+Investigating the context of what each "that's what X said" was to see if I would include it.
+```{r}
+x_said_lines0 <- office_4gram %>%
+    filter(str_detect(words_4, "^that's what .* said$")) %>%
+    separate(words_4, into = c("that", "what", "X", "said"), sep = " ") %>% 
+    select(-that, -what, -said) %>% 
+    filter(X != "she") %>% 
+    pull(index)
+
+x_said_lines <- c(x_said_lines0, x_said_lines0 - 1, x_said_lines0 + 1)
+
+
+office_data %>% 
+    filter(index %in% x_said_lines)
+```
+
+
+Include Lines in context: 16543, 22520, 36518
+
+
+
+# 7)
+
+```{r}
+office_data <- office_data %>% 
+    mutate(twss_type = as.factor(ifelse(
+        str_count(lines, "that's what she said"), 1, ifelse(
+            index %in% c(1902, 18385), 3, ifelse(
+                index %in% c(), 4, ifelse(
+                    index %in% c(), 5, ifelse(
+                        index %in% c(16543, 22520, 36518), 6, 0)))))))
+```
+
+
+
+
+
+
+# 8)
+
+```{r}
+office_data %>% 
+    count(twss_type) %>%
+    ggplot() + 
+    geom_col(aes(x = reorder(twss_type, -n), y = n, fill = n), show.legend = FALSE) + 
+    theme_minimal() +
+    ggtitle("Distribution of Identification of \"that's what she said\"") + 
+    xlab("Question Identified (0 if line does not include twss)") + 
+    ylab("Count of Lines")
+```
+
+
+
+```{r}
+office_data %>% 
+    count(twss_type) %>%
+    ggplot() + 
+    aes(x = twss_type, y = n) +
+    geom_col(fill = "red", color = "black", show.legend = FALSE) + 
+    theme_minimal() +
+    ggtitle("Distribution of Identification of \"that's what she said\"") + 
+    xlab("Question Identified (0 if line did not include twss)") + 
+    ylab("Count of Lines") + 
+    coord_cartesian(ylim = c(0, 50)) + 
+    geom_text(aes(y = 2, label = paste0(n, " lines")), vjust = -1)
+```
+
+
+
+
+
+
